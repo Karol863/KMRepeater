@@ -1,5 +1,6 @@
 #include <windows.h>
 #include <stdio.h>
+#include <stdbool.h>
 
 #define initial_capacity 1024
 
@@ -7,7 +8,7 @@ static int cxscreen;
 static int cyscreen;
 static HHOOK mouse_hook;
 static HHOOK keyboard_hook;
-static int recording = 0;
+static bool recording = false;
 
 enum {
     MOUSE_MOVE,
@@ -30,13 +31,13 @@ typedef struct {
     size_t capacity;
 } a;
 
-void init_array(a *arr) {
+static void init_array(a *arr) {
     arr->data = (EventInput *)malloc(initial_capacity * sizeof(EventInput));
     arr->size = 0;
     arr->capacity = initial_capacity;
 }
 
-void resize_array_mouse_move(a *arr, POINT coordinates, WPARAM wParam) {
+static void resize_array_mouse_move(a *arr, POINT coordinates, WPARAM wParam) {
     if (arr->capacity == arr->size) {
         arr->capacity *= 2;
         arr->data = (EventInput *)realloc(arr->data, arr->capacity * sizeof(EventInput));
@@ -56,7 +57,7 @@ void resize_array_mouse_move(a *arr, POINT coordinates, WPARAM wParam) {
     arr->size++;
 }
 
-void resize_array_mouse(a *arr, WPARAM wParam) {
+static void resize_array_mouse(a *arr, WPARAM wParam) {
     if (arr->capacity == arr->size) {
         arr->capacity *= 2;
         arr->data = (EventInput *)realloc(arr->data, arr->capacity * sizeof(EventInput));
@@ -67,11 +68,11 @@ void resize_array_mouse(a *arr, WPARAM wParam) {
         case MOUSE_LEFT_UP:
             arr->data[arr->size].input.mi.dwFlags = MOUSEEVENTF_LEFTUP;
             break;
-        case MOUSE_LEFT_DOWN:
-            arr->data[arr->size].input.mi.dwFlags = MOUSEEVENTF_LEFTDOWN;
-            break;
         case MOUSE_RIGHT_UP:
             arr->data[arr->size].input.mi.dwFlags = MOUSEEVENTF_RIGHTUP;
+            break;
+        case MOUSE_LEFT_DOWN:
+            arr->data[arr->size].input.mi.dwFlags = MOUSEEVENTF_LEFTDOWN;
             break;
         case MOUSE_RIGHT_DOWN:
             arr->data[arr->size].input.mi.dwFlags = MOUSEEVENTF_RIGHTDOWN;
@@ -83,7 +84,7 @@ void resize_array_mouse(a *arr, WPARAM wParam) {
     arr->size++;
 }
 
-void resize_array_keyboard(a *arr, DWORD key, WPARAM wParam) {
+static void resize_array_keyboard(a *arr, DWORD key, WPARAM wParam) {
     if (arr->capacity == arr->size) {
         arr->capacity *= 2;
         arr->data = (EventInput *)realloc(arr->data, arr->capacity * sizeof(EventInput));
@@ -105,7 +106,7 @@ void resize_array_keyboard(a *arr, DWORD key, WPARAM wParam) {
     arr->size++;
 }
 
-void free_array(a *arr) {
+static void free_array(a *arr) {
     free(arr->data);
     arr->size = 0;
     arr->capacity = 0;
@@ -113,7 +114,7 @@ void free_array(a *arr) {
 
 a array;
 
-LRESULT CALLBACK mouse(int nCode, WPARAM wParam, LPARAM lParam) {
+static LRESULT CALLBACK mouse(int nCode, WPARAM wParam, LPARAM lParam) {
     if (nCode == HC_ACTION) {
         MSLLHOOKSTRUCT *p = (MSLLHOOKSTRUCT *) lParam;
         POINT coordinates = p->pt;
@@ -125,11 +126,11 @@ LRESULT CALLBACK mouse(int nCode, WPARAM wParam, LPARAM lParam) {
             case WM_LBUTTONUP:
                 resize_array_mouse(&array, MOUSE_LEFT_UP);
                 break;
-            case WM_LBUTTONDOWN:
-                resize_array_mouse(&array, MOUSE_LEFT_DOWN);
-                break;
             case WM_RBUTTONUP:
                 resize_array_mouse(&array, MOUSE_RIGHT_UP);
+                break;
+            case WM_LBUTTONDOWN:
+                resize_array_mouse(&array, MOUSE_LEFT_DOWN);
                 break;
             case WM_RBUTTONDOWN:
                 resize_array_mouse(&array, MOUSE_RIGHT_DOWN);
@@ -141,10 +142,10 @@ LRESULT CALLBACK mouse(int nCode, WPARAM wParam, LPARAM lParam) {
     return CallNextHookEx(NULL, nCode, wParam, lParam);
 }
 
-LRESULT CALLBACK keyboard(int nCode, WPARAM wParam, LPARAM lParam) {
+static LRESULT CALLBACK keyboard(int nCode, WPARAM wParam, LPARAM lParam) {
     if (nCode == HC_ACTION) {
-        KBDLLHOOKSTRUCT *ptr = (KBDLLHOOKSTRUCT *) lParam;
-        DWORD key = ptr->vkCode;
+        KBDLLHOOKSTRUCT *p = (KBDLLHOOKSTRUCT *) lParam;
+        DWORD key = p->vkCode;
 
         switch(wParam) {
             case WM_KEYUP:
@@ -160,7 +161,7 @@ LRESULT CALLBACK keyboard(int nCode, WPARAM wParam, LPARAM lParam) {
     return CallNextHookEx(NULL, nCode, wParam, lParam);
 }
 
-void replay(void) {
+static void replay(void) {
     LARGE_INTEGER start, difference, end, delta, frequency;
     QueryPerformanceFrequency(&frequency);
 
@@ -195,59 +196,49 @@ int main(void) {
                     array.size = 0;
                     mouse_hook = SetWindowsHookEx(WH_MOUSE_LL, mouse, NULL, 0);
                     keyboard_hook = SetWindowsHookEx(WH_KEYBOARD_LL, keyboard, NULL, 0);
-                    recording = 1;
+                    recording = true;
+                    
                     puts("Started recording. Click ALT + 1 once again to stop!");
                 } else {
                     UnhookWindowsHookEx(mouse_hook);
                     UnhookWindowsHookEx(keyboard_hook);
-                    recording = 0;
+                    recording = false;
 
                     FILE *fp = fopen("data.txt", "wb");
                     if (fp == NULL) {
-                        puts("Failed to open file for writing!");
+                        fputs("Failed to open file for writing!\n", stderr);
                         UnregisterHotKey(NULL, 1);
                         UnregisterHotKey(NULL, 2);
                         free_array(&array);
                         return -1;
                     }
+                    
                     fwrite(&array.size, sizeof(size_t), 1, fp);
                     fwrite(array.data, sizeof(EventInput), array.size, fp);
-                    if (ferror(fp)) {
-                        puts("Failed to write data into a file!");
-                        UnregisterHotKey(NULL, 1);
-                        UnregisterHotKey(NULL, 2);
-                        free_array(&array);
-                        fclose(fp);
-                        return -1;
-                    }
                     fclose(fp);
-                    puts("Recorded stopped and saved!");
+                    
+                    puts("Recording stopped and saved!");
                 }
             } else if (msg.wParam == 2) {
                 array.size = 0;
                 FILE *fp = fopen("data.txt", "rb");
                 if (fp == NULL) {
-                    puts("Failed to open file fo reading!");
+                    fputs("Failed to open file for reading!\n", stderr);
                     UnregisterHotKey(NULL, 1);
                     UnregisterHotKey(NULL, 2);
                     free_array(&array);
                     return -1;
                 }
                 fread(&array.size, sizeof(size_t), 1, fp);
+                
                 if (array.size > array.capacity) {
                     array.data = (EventInput *)realloc(array.data, array.size * sizeof(EventInput));
                     array.capacity = array.size;
                 }
+                
                 fread(array.data, sizeof(EventInput), array.size, fp);
-                if (ferror(fp)) {
-                    puts("Failed to read data from a file!");
-                    UnregisterHotKey(NULL, 1);
-                    UnregisterHotKey(NULL, 2);
-                    free_array(&array);
-                    fclose(fp);
-                    return -1;
-                }
                 fclose(fp);
+                
                 replay();
                 puts("Replay finished!");
                 break;
