@@ -1,24 +1,10 @@
-#include <windows.h>
-#include <stdio.h>
-#include <stdbool.h>
-
-#define initial_capacity 1024
+#include "base.h"
 
 static int cxscreen;
 static int cyscreen;
 static HHOOK mouse_hook;
 static HHOOK keyboard_hook;
 static bool recording = false;
-
-enum {
-    MOUSE_MOVE,
-    MOUSE_LEFT_UP,
-    MOUSE_LEFT_DOWN,
-    MOUSE_RIGHT_UP,
-    MOUSE_RIGHT_DOWN,
-    KEYBOARD_UP,
-    KEYBOARD_DOWN,
-};
 
 typedef struct {
     INPUT input;
@@ -27,135 +13,125 @@ typedef struct {
 
 typedef struct {
     EventInput *data;
-    size_t size;
-    size_t capacity;
-} a;
+    u64 offset;
+    u64 capacity;
+} Array;
 
-static void init_array(a *arr) {
-    arr->data = (EventInput *)malloc(initial_capacity * sizeof(EventInput));
-    arr->size = 0;
-    arr->capacity = initial_capacity;
+static void array_init(Array *a) {
+    a->data = malloc(CAPACITY * sizeof(EventInput));
+    if (a->data == NULL) {
+        fputs("Failed to allocate memory!\n", stderr);
+        exit(1);
+    }
+    a->offset = 0;
+    a->capacity = CAPACITY;
 }
 
-static void resize_array_mouse_move(a *arr, POINT coordinates, WPARAM wParam) {
-    if (arr->capacity == arr->size) {
-        arr->capacity *= 2;
-        arr->data = (EventInput *)realloc(arr->data, arr->capacity * sizeof(EventInput));
-    }
-    arr->data[arr->size].input.type = INPUT_MOUSE;
-    arr->data[arr->size].input.mi.dx = coordinates.x * (65535 / cxscreen);
-    arr->data[arr->size].input.mi.dy = coordinates.y * (65535 / cyscreen);
-
-    switch(wParam) {
-        case MOUSE_MOVE:
-            arr->data[arr->size].input.mi.dwFlags = MOUSEEVENTF_MOVE | MOUSEEVENTF_ABSOLUTE;
-            break;
-        default:
-            break;
-    }
-    QueryPerformanceCounter(&arr->data[arr->size].time);
-    arr->size++;
+static void array_free(Array *a) {
+    free(a->data);
+    a->offset = 0;
+    a->capacity = 0;
 }
 
-static void resize_array_mouse(a *arr, WPARAM wParam) {
-    if (arr->capacity == arr->size) {
-        arr->capacity *= 2;
-        arr->data = (EventInput *)realloc(arr->data, arr->capacity * sizeof(EventInput));
+static void mouse_move(Array *a, POINT coordinates, WPARAM wParam) {
+    if (a->capacity == a->offset) {
+        a->capacity <<= 1;
+        a->data = realloc(a->data, a->capacity * sizeof(EventInput));
+        if (a->data == NULL) {
+            fputs("Failed to reallocate memory!\n", stderr);
+            array_free(a);
+            exit(1);
+        }
     }
-    arr->data[arr->size].input.type = INPUT_MOUSE;
+    a->data[a->offset].input.type = INPUT_MOUSE;
+    a->data[a->offset].input.mi.dx = coordinates.x * (65535 / cxscreen);
+    a->data[a->offset].input.mi.dy = coordinates.y * (65535 / cyscreen);
+
+    if (wParam == MOUSE_MOVE) {
+        a->data[a->offset].input.mi.dwFlags = MOUSEEVENTF_MOVE | MOUSEEVENTF_ABSOLUTE;
+    }
+    QueryPerformanceCounter(&a->data[a->offset].time);
+    a->offset++;
+}
+
+static void mouse_buttons(Array *a, WPARAM wParam) {
+    if (a->capacity == a->offset) {
+        a->capacity <<= 1;
+        a->data = realloc(a->data, a->capacity * sizeof(EventInput));
+        if (a->data == NULL) {
+            fputs("Failed to reallocate memory!\n", stderr);
+            array_free(a);
+            exit(1);
+        }
+    }
+    a->data[a->offset].input.type = INPUT_MOUSE;
     
-    switch(wParam) {
-        case MOUSE_LEFT_UP:
-            arr->data[arr->size].input.mi.dwFlags = MOUSEEVENTF_LEFTUP;
-            break;
-        case MOUSE_RIGHT_UP:
-            arr->data[arr->size].input.mi.dwFlags = MOUSEEVENTF_RIGHTUP;
-            break;
-        case MOUSE_LEFT_DOWN:
-            arr->data[arr->size].input.mi.dwFlags = MOUSEEVENTF_LEFTDOWN;
-            break;
-        case MOUSE_RIGHT_DOWN:
-            arr->data[arr->size].input.mi.dwFlags = MOUSEEVENTF_RIGHTDOWN;
-            break;
-        default:
-            break;
+    if (wParam == MOUSE_LEFT_UP) {
+        a->data[a->offset].input.mi.dwFlags = MOUSEEVENTF_LEFTUP;
+    } else if (wParam == MOUSE_RIGHT_UP) {
+        a->data[a->offset].input.mi.dwFlags = MOUSEEVENTF_RIGHTUP;
+    } else if (wParam == MOUSE_LEFT_DOWN) {
+        a->data[a->offset].input.mi.dwFlags = MOUSEEVENTF_LEFTDOWN;
+    } else if (wParam == MOUSE_RIGHT_DOWN) {
+        a->data[a->offset].input.mi.dwFlags = MOUSEEVENTF_RIGHTDOWN;
     }
-    QueryPerformanceCounter(&arr->data[arr->size].time);
-    arr->size++;
+    QueryPerformanceCounter(&a->data[a->offset].time);
+    a->offset++;
 }
 
-static void resize_array_keyboard(a *arr, DWORD key, WPARAM wParam) {
-    if (arr->capacity == arr->size) {
-        arr->capacity *= 2;
-        arr->data = (EventInput *)realloc(arr->data, arr->capacity * sizeof(EventInput));
+static void keyboard_keys(Array *a, DWORD key, WPARAM wParam) {
+    if (a->capacity == a->offset) {
+        a->capacity <<= 1;
+        a->data = realloc(a->data, a->capacity * sizeof(EventInput));
+        if (a->data == NULL) {
+            fputs("Failed to reallocate memory!\n", stderr);
+            array_free(a);
+            exit(1);
+        }
     }
-    arr->data[arr->size].input.type = INPUT_KEYBOARD;
-    arr->data[arr->size].input.ki.wVk = key;
+    a->data[a->offset].input.type = INPUT_KEYBOARD;
+    a->data[a->offset].input.ki.wVk = key;
 
-    switch(wParam) {
-        case KEYBOARD_UP:
-            arr->data[arr->size].input.ki.dwFlags = KEYEVENTF_KEYUP;
-            break;
-        case KEYBOARD_DOWN:
-            arr->data[arr->size].input.ki.dwFlags = 0;
-            break;
-        default:
-            break;
+    if (wParam == KEYBOARD_UP) {
+        a->data[a->offset].input.ki.dwFlags = KEYEVENTF_KEYUP;
+    } else if (wParam == KEYBOARD_DOWN) {
+        a->data[a->offset].input.ki.dwFlags = 0;
     }
-    QueryPerformanceCounter(&arr->data[arr->size].time);
-    arr->size++;
+    QueryPerformanceCounter(&a->data[a->offset].time);
+    a->offset++;
 }
 
-static void free_array(a *arr) {
-    free(arr->data);
-    arr->size = 0;
-    arr->capacity = 0;
-}
+Array arr;
 
-a array;
-
-static LRESULT CALLBACK mouse(int nCode, WPARAM wParam, LPARAM lParam) {
+static LRESULT CALLBACK mouse_callback(int nCode, WPARAM wParam, LPARAM lParam) {
     if (nCode == HC_ACTION) {
-        MSLLHOOKSTRUCT *p = (MSLLHOOKSTRUCT *) lParam;
+        MSLLHOOKSTRUCT *p = (MSLLHOOKSTRUCT *)lParam;
         POINT coordinates = p->pt;
 
-        switch(wParam) {
-            case WM_MOUSEMOVE:
-                resize_array_mouse_move(&array, coordinates, MOUSE_MOVE);
-                break;
-            case WM_LBUTTONUP:
-                resize_array_mouse(&array, MOUSE_LEFT_UP);
-                break;
-            case WM_RBUTTONUP:
-                resize_array_mouse(&array, MOUSE_RIGHT_UP);
-                break;
-            case WM_LBUTTONDOWN:
-                resize_array_mouse(&array, MOUSE_LEFT_DOWN);
-                break;
-            case WM_RBUTTONDOWN:
-                resize_array_mouse(&array, MOUSE_RIGHT_DOWN);
-                break;
-            default:
-                break;
+        if (wParam == WM_MOUSEMOVE) {
+            mouse_move(&arr, coordinates, MOUSE_MOVE);
+        } else if (wParam == WM_LBUTTONUP) {
+            mouse_buttons(&arr, MOUSE_LEFT_UP);
+        } else if (wParam == WM_RBUTTONUP) {
+            mouse_buttons(&arr, MOUSE_RIGHT_UP);
+        } else if (wParam == WM_LBUTTONDOWN) {
+            mouse_buttons(&arr, MOUSE_LEFT_DOWN);
+        } else if (wParam == WM_RBUTTONDOWN) {
+            mouse_buttons(&arr, MOUSE_RIGHT_DOWN);
         }
     }
     return CallNextHookEx(NULL, nCode, wParam, lParam);
 }
 
-static LRESULT CALLBACK keyboard(int nCode, WPARAM wParam, LPARAM lParam) {
+static LRESULT CALLBACK keyboard_callback(int nCode, WPARAM wParam, LPARAM lParam) {
     if (nCode == HC_ACTION) {
-        KBDLLHOOKSTRUCT *p = (KBDLLHOOKSTRUCT *) lParam;
+        KBDLLHOOKSTRUCT *p = (KBDLLHOOKSTRUCT *)lParam;
         DWORD key = p->vkCode;
 
-        switch(wParam) {
-            case WM_KEYUP:
-                resize_array_keyboard(&array, key, KEYBOARD_UP);
-                break;
-            case WM_KEYDOWN:
-                resize_array_keyboard(&array, key, KEYBOARD_DOWN);
-                break;
-            default:
-                break;
+        if (wParam == WM_KEYUP) {
+            keyboard_keys(&arr, key, KEYBOARD_UP);
+        } else if (wParam == WM_KEYDOWN) {
+            keyboard_keys(&arr, key, KEYBOARD_DOWN);
         }
     }
     return CallNextHookEx(NULL, nCode, wParam, lParam);
@@ -165,21 +141,22 @@ static void replay(void) {
     LARGE_INTEGER start, difference, end, delta, frequency;
     QueryPerformanceFrequency(&frequency);
 
-    for (size_t i = 1; i < array.size; i++) {
+    for (u64 i = 1; i < arr.offset; ++i) {
         QueryPerformanceCounter(&start);
-        SendInput(1, &array.data[i].input, sizeof(INPUT));
-        delta.QuadPart = (array.data[i].time.QuadPart - array.data[i - 1].time.QuadPart) * frequency.QuadPart / 1000000;
+        SendInput(1, &arr.data[i].input, sizeof(INPUT));
+        delta.QuadPart = (arr.data[i].time.QuadPart - arr.data[i - 1].time.QuadPart) * frequency.QuadPart / 1000000;
         
         do {
             Sleep(0);
             QueryPerformanceCounter(&end);
-            difference.QuadPart = end.QuadPart - start.QuadPart;
+            difference.QuadPart = (end.QuadPart - start.QuadPart) * frequency.QuadPart / 1000000;
         } while (difference.QuadPart < delta.QuadPart);
     }
 }
 
 int main(void) {
-    init_array(&array);
+    array_init(&arr);
+
     cxscreen = GetSystemMetrics(SM_CXSCREEN);
     cyscreen = GetSystemMetrics(SM_CYSCREEN);
 
@@ -189,55 +166,80 @@ int main(void) {
     puts("Click ALT + 1 to record, and ALT + 2 to replay!");
 
     MSG msg;
-    while (GetMessage(&msg, NULL, 0, 0)) {
+    while (GetMessage(&msg, NULL, 0, 0) > 0) {
         if (msg.message == WM_HOTKEY) {
             if (msg.wParam == 1) {
                 if (!(recording)) {
-                    array.size = 0;
-                    mouse_hook = SetWindowsHookEx(WH_MOUSE_LL, mouse, NULL, 0);
-                    keyboard_hook = SetWindowsHookEx(WH_KEYBOARD_LL, keyboard, NULL, 0);
+                    mouse_hook = SetWindowsHookEx(WH_MOUSE_LL, mouse_callback, NULL, 0);
+                    keyboard_hook = SetWindowsHookEx(WH_KEYBOARD_LL, keyboard_callback, NULL, 0);
                     recording = true;
                     
-                    puts("Started recording. Click ALT + 1 once again to stop!");
+                    puts("Started recording. Click ALT + 1 again to stop!");
                 } else {
                     UnhookWindowsHookEx(mouse_hook);
                     UnhookWindowsHookEx(keyboard_hook);
                     recording = false;
 
-                    FILE *fp = fopen("data.txt", "wb");
-                    if (fp == NULL) {
+                    FILE *f = fopen("data.txt", "wb");
+                    if (f == NULL) {
                         fputs("Failed to open file for writing!\n", stderr);
-                        UnregisterHotKey(NULL, 1);
-                        UnregisterHotKey(NULL, 2);
-                        free_array(&array);
+                        goto cleanup;
                         return -1;
                     }
                     
-                    fwrite(&array.size, sizeof(size_t), 1, fp);
-                    fwrite(array.data, sizeof(EventInput), array.size, fp);
-                    fclose(fp);
+                    fwrite(&arr.offset, sizeof(u64), 1, f);
+                    fwrite(arr.data, sizeof(EventInput), arr.offset, f);
+                    if (ferror(f)) {
+                        fputs("Failed to write data into the data.txt file!\n", stderr);
+                        goto cleanup;
+                        fclose(f);
+                        return -1;
+                    }
+                    fclose(f);
                     
                     puts("Recording stopped and saved!");
                 }
             } else if (msg.wParam == 2) {
-                array.size = 0;
-                FILE *fp = fopen("data.txt", "rb");
-                if (fp == NULL) {
+                arr.offset = 0;
+                FILE *f = fopen("data.txt", "rb");
+                if (f == NULL) {
                     fputs("Failed to open file for reading!\n", stderr);
-                    UnregisterHotKey(NULL, 1);
-                    UnregisterHotKey(NULL, 2);
-                    free_array(&array);
+                    goto cleanup;
                     return -1;
                 }
-                fread(&array.size, sizeof(size_t), 1, fp);
-                
-                if (array.size > array.capacity) {
-                    array.data = (EventInput *)realloc(array.data, array.size * sizeof(EventInput));
-                    array.capacity = array.size;
+
+                fread(&arr.offset, sizeof(u64), 1, f);
+                while (arr.offset >= arr.capacity) {
+                    arr.capacity <<= 1;
+                    arr.data = realloc(arr.data, arr.capacity * sizeof(EventInput));
+                    if (arr.data == NULL) {
+                        fputs("Failed to reallocate memory!\n", stderr);
+                        goto cleanup;
+                        fclose(f);
+                        return -1;
+                    }
                 }
-                
-                fread(array.data, sizeof(EventInput), array.size, fp);
-                fclose(fp);
+
+                fread(arr.data, sizeof(EventInput), arr.offset, f);
+                while (arr.offset >= arr.capacity) {
+                    arr.capacity <<= 1;
+                    arr.data = realloc(arr.data, arr.capacity * sizeof(EventInput));
+                    if (arr.data == NULL) {
+                        fputs("Failed to reallocate memory!\n", stderr);
+                        goto cleanup;
+                        fclose(f);
+                        return -1;
+                    }
+                }
+
+                if (ferror(f)) {
+                    fputs("Failed to read data from the data.txt file!\n", stderr);
+                    goto cleanup;
+                    fclose(f);
+                    return -1;
+                }
+
+                fclose(f);
                 
                 replay();
                 puts("Replay finished!");
@@ -247,8 +249,9 @@ int main(void) {
         TranslateMessage(&msg);
         DispatchMessage(&msg);
     }
-    UnregisterHotKey(NULL, 1);
-    UnregisterHotKey(NULL, 2);
-    free_array(&array);
+    cleanup:
+        UnregisterHotKey(NULL, 1);
+        UnregisterHotKey(NULL, 2);
+        array_free(&arr);
     return 0;
 }
