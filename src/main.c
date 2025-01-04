@@ -9,6 +9,7 @@ static ULONGLONG timer_end;
 int main(void) {
     array_init(&arr);
     char number[4096];
+	char filename[2048];
 
     cxscreen = GetSystemMetrics(SM_CXSCREEN);
     cyscreen = GetSystemMetrics(SM_CYSCREEN);
@@ -37,7 +38,14 @@ int main(void) {
 				UnhookWindowsHookEx(mouse_hook);
 				UnhookWindowsHookEx(keyboard_hook);
 
-				FILE *f = fopen("data", "wb");
+				puts("Name a file where you want to save the record: (e.g data)");
+				if (fgets(filename, sizeof(filename), stdin) == NULL) {
+					fputs("Error: failed to read user input.\n", stderr);
+					goto cleanup;
+				}
+                filename[strcspn(filename, "\n")] = '\0';
+
+				FILE *f = fopen(filename, "wb");
 				if (f == NULL) {
 					fputs("Error: failed to open file for writing!\n", stderr);
 					goto cleanup;
@@ -53,14 +61,20 @@ int main(void) {
 				fclose(f);
 
 				printf("Record saved. You were recoding for %llu hour(s), %llu minute(s), and %llu second(s).\n", hours, minutes, seconds);
-				break;
 			}
 		} else if (msg.message == WM_HOTKEY && msg.wParam == 2) {
 			arr.data = 0;
 			arr.offset = 0;
 			arr.capacity = 0;
 
-			FILE *f = fopen("data", "rb");
+			puts("From what file do you want to replay the record? ");
+			if (fgets(filename, sizeof(filename), stdin) == NULL) {
+				fputs("Error: failed to read user input.\n", stderr);
+				goto cleanup;
+			}
+            filename[strcspn(filename, "\n")] = '\0';
+
+			FILE *f = fopen(filename, "rb");
 			if (f == NULL) {
 				fputs("Error: failed to open file for reading!\n", stderr);
 				goto cleanup;
