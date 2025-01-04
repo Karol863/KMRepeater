@@ -1,7 +1,7 @@
 #include "base.h"
 
 // Configure how much memory you want to reserve for the program.
-// The number MUST be a power of 2, otherwise the program will crash.
+// The number MUST be a power of 2, otherwise the program will close.
 // GB-Bytes converter: https://www.unitconverters.net/data-storage/gigabyte-to-byte.htm
 #define RESERVED_MEMORY 34359738368
 
@@ -21,6 +21,6 @@
 // The value MUST end with an "f".
 #define SPEED 1.0f
 
-// Configure how long you want to wait before performing the replay.
+// Configure how long you want to wait before executing the replay.
 // The time is in seconds.
 #define TIME 10

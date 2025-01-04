@@ -1,5 +1,3 @@
-#include <assert.h>
-
 #include "config.h"
 
 #define PAGE_SIZE 4096
@@ -20,7 +18,10 @@ BOOL ispoweroftwo(u64 x) {
 }
 
 void array_init(Array *a) {
-	assert(ispoweroftwo(RESERVED_MEMORY));
+	if (!ispoweroftwo(RESERVED_MEMORY)) {
+		fputs("Error: reserved memory MUST be a power of 2!\n", stderr);
+		exit(1);
+	}
 
 	a->data = VirtualAlloc(NULL, RESERVED_MEMORY * sizeof(EventInput), MEM_RESERVE, PAGE_NOACCESS);
 	if (a->data == NULL) {
