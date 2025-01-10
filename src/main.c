@@ -41,22 +41,21 @@ int main(void) {
 				puts("Name a file where you want to save the record: (e.g data)");
 				if (fgets(filename, sizeof(filename), stdin) == NULL) {
 					fputs("Error: failed to read user input.\n", stderr);
-					goto cleanup;
+					return 1;
 				}
                 filename[strcspn(filename, "\n")] = '\0';
 
 				FILE *f = fopen(filename, "wb");
 				if (f == NULL) {
-					fputs("Error: failed to open file for writing!\n", stderr);
-					goto cleanup;
+					fputs("Error: failed to open file for writing.\n", stderr);
+					return 1;
 				}
 
 				fwrite(&arr.offset, sizeof(u64), 1, f);
 				fwrite(arr.data, sizeof(EventInput), arr.offset, f);
 				if (ferror(f)) {
-					fputs("Error: failed to write data into the data file!\n", stderr);
-					goto cleanup;
-					fclose(f);
+					fputs("Error: failed to write data into the data file.\n", stderr);
+					return 1;
 				}
 				fclose(f);
 
@@ -70,30 +69,29 @@ int main(void) {
 			puts("From what file do you want to replay the record? ");
 			if (fgets(filename, sizeof(filename), stdin) == NULL) {
 				fputs("Error: failed to read user input.\n", stderr);
-				goto cleanup;
+				return 1;
 			}
             filename[strcspn(filename, "\n")] = '\0';
 
 			FILE *f = fopen(filename, "rb");
 			if (f == NULL) {
-				fputs("Error: failed to open file for reading!\n", stderr);
-				goto cleanup;
+				fputs("Error: failed to open file for reading.\n", stderr);
+				return 1;
 			}
 
 			fread(&arr.offset, sizeof(u64), 1, f);
 			array_alloc(&arr, arr.offset);
 			fread(arr.data, sizeof(EventInput), arr.offset, f);
 			if (ferror(f)) {
-				fputs("Error: failed to read data from the data file!\n", stderr);
-				goto cleanup;
-				fclose(f);
+				fputs("Error: failed to read data from the data file.\n", stderr);
+				return 1;
 			}
 			fclose(f);
 
 			printf("How many times you want to replay? In case of an infinite replay, enter 0: ");
 			if (fgets(number, sizeof(number), stdin) == NULL) {
 				fputs("Error: failed to read user input!\n", stderr);
-				goto cleanup;
+				return 1;
 			}
 			printf("Choosen number: %s\n", number);
 
@@ -128,14 +126,5 @@ int main(void) {
 		TranslateMessage(&msg);
 		DispatchMessage(&msg);
 	}
-    UnregisterHotKey(NULL, 1);
-	UnregisterHotKey(NULL, 2);
-    array_free(&arr);
 	return 0;
-
-    cleanup:
-        UnregisterHotKey(NULL, 1);
-        UnregisterHotKey(NULL, 2);
-        array_free(&arr);
-		return 1;
 }

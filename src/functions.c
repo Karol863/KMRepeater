@@ -10,7 +10,7 @@ BOOL replaying = TRUE;
 static void mouse_handler(Array *a, WPARAM wParam, POINT coordinates, DWORD wheel) {
 	if (a->offset == a->capacity) {
 		a->capacity *= 2;
-		array_alloc(a, a->capacity * sizeof(EventInput));
+		array_alloc(a, a->capacity);
 	}
 
     a->data[a->offset].input.type = INPUT_MOUSE;
@@ -48,7 +48,7 @@ static void mouse_handler(Array *a, WPARAM wParam, POINT coordinates, DWORD whee
 static void keyboard_handler(Array *a, WPARAM wParam, DWORD key) {
 	if (a->offset == a->capacity) {
 		a->capacity *= 2;
-		array_alloc(a, a->capacity * sizeof(EventInput));
+		array_alloc(a, a->capacity);
 	}
 
     a->data[a->offset].input.type = INPUT_KEYBOARD;
